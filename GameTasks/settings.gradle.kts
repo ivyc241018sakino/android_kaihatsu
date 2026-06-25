@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "gametasks"
+rootProject.name = "GameTasks"
 include(":app")
