@@ -27,16 +27,56 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.gametasks.data.GameEntity
 import com.example.gametasks.ui.theme.GameTasksTheme
+import java.util.Calendar
+import java.util.concurrent.TimeUnit
+
+// ⭕️ エラー回避のためフルパスでのインポートを明示
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequest
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // ⭕️ アプリ起動時に毎日リセットのスケジュールを登録
+        setupDailyResetWork()
+
         setContent {
             GameTasksTheme {
                 val gameViewModel: GameViewModel = viewModel()
                 MainAppScreen(viewModel = gameViewModel)
             }
         }
+    }
+
+    // ⭕️ 毎日0:00に裏側でリセットを実行する関数（朝5時に変えたい場合は HOUR_OF_DAY を 5 に）
+    private fun setupDailyResetWork() {
+        val currentDate = Calendar.getInstance()
+        val dueDate = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+        }
+
+        if (dueDate.before(currentDate)) {
+            dueDate.add(Calendar.HOUR_OF_DAY, 24)
+        }
+
+        val initialDelay = dueDate.timeInMillis - currentDate.timeInMillis
+
+        // 24時間周期のタスクを作成
+        val dailyResetRequest = PeriodicWorkRequestBuilder<ResetWorker>(24, TimeUnit.HOURS)
+            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
+            .build()
+
+        // 重複防止の設定でWorkManagerに登録
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            "DailyResetWork",
+            ExistingPeriodicWorkPolicy.KEEP,
+            dailyResetRequest
+        )
     }
 }
 
@@ -50,8 +90,6 @@ fun MainAppScreen(viewModel: GameViewModel) {
 
     Scaffold(
         bottomBar = {
-            // 💡 登録・詳細画面を開いているときはナビゲーションバーを隠す
-            // 先頭部分が一致しているかで判定します
             if (currentRoute?.startsWith("add_game") == false) {
                 NavigationBar {
                     NavigationBarItem(
@@ -113,11 +151,9 @@ fun MainAppScreen(viewModel: GameViewModel) {
                         viewModel.updateGame(updatedGame)
                     },
                     onNavigateToRegister = {
-                        // ⭕️ 新規登録として画面を開く（引数なし）
                         navController.navigate(Screen.AddGame.createRoute())
                     },
                     onGameClick = { gameId ->
-                        // ⭕️ 編集・詳細表示として画面を開く（ゲームIDを引数に渡す）
                         navController.navigate(Screen.AddGame.createRoute(gameId))
                     }
                 )
@@ -126,7 +162,6 @@ fun MainAppScreen(viewModel: GameViewModel) {
             composable(Screen.Search.route) { SearchScreen() }
             composable(Screen.Setting.route) { SettingScreen() }
 
-            // ⭕️ 引数（gameId）を受け取れるようにcomposableの設定を修正
             composable(
                 route = Screen.AddGame.route,
                 arguments = listOf(navArgument("gameId") {
@@ -140,7 +175,7 @@ fun MainAppScreen(viewModel: GameViewModel) {
 
                 AddGameScreen(
                     viewModel = viewModel,
-                    gameId = gameId, // ⭕️ ここで gameId を AddGameScreen に渡します！
+                    gameId = gameId,
                     onSaved = {
                         navController.popBackStack()
                     }

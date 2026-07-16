@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Check // ⭕️ Save から Check に変更しました
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,7 +36,7 @@ fun AddGameScreen(
                 // ⭕️ ここで自動連動：保存時に gameId を渡して、新規か上書きかを判断させます
                 viewModel.saveGame(gameId) { onSaved() }
             }) {
-                Icon(Icons.Default.Save, contentDescription = "保存")
+                Icon(Icons.Default.Check, contentDescription = "保存") // ⭕️ Icons.Default.Check に変更しました
             }
         }
     ) { innerPadding ->
@@ -94,4 +94,4 @@ fun AddGameScreen(
             }
         }
     }
-}
+}q
