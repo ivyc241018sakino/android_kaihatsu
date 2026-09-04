@@ -41,18 +41,31 @@ interface GameDao {
     @Query("SELECT * FROM games WHERE game_id = :gameId")
     suspend fun getGameWithDetailsById(gameId: Int): GameWithDetails?
 
-    // ③ デイリー完了状態の切り替え（一発で更新する用）
+    // ③ デイリー完了状態の切り替え（Booleanに変更）
     @Query("UPDATE games SET completed = :completed, updated_at = :timestamp WHERE game_id = :gameId")
-    suspend fun updateIndividualCompletionStatus(gameId: Int, completed: Int, timestamp: Long)
+    suspend fun updateIndividualCompletionStatus(gameId: Int, completed: Boolean, timestamp: Long)
 
     // ④ 毎日0:00の自動リセット用：すべてのゲームを未完了（0）にする
     @Query("UPDATE games SET completed = 0, updated_at = :timestamp")
     suspend fun resetAllGamesCompletion(timestamp: Long)
 
-    // --- マスターデータ（ジャンル・プラットフォーム）の初期登録用 ---
+    // --- マスターデータ（ジャンル・プラットフォーム）の取得・登録 ---
+
+    @Query("SELECT * FROM genres ORDER BY genre_id ASC")
+    fun getAllGenres(): Flow<List<GenreEntity>>
+
+    @Query("SELECT * FROM platforms ORDER BY platform_id ASC")
+    fun getAllPlatforms(): Flow<List<PlatformEntity>>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertGenres(genres: List<GenreEntity>)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPlatforms(platforms: List<PlatformEntity>)
+
+    @Delete
+    suspend fun deleteGenre(genre: GenreEntity)
+
+    @Delete
+    suspend fun deletePlatform(platform: PlatformEntity)
 }

@@ -25,22 +25,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.gametasks.data.GameEntity
 import com.example.gametasks.ui.theme.GameTasksTheme
-import java.util.Calendar
-import java.util.concurrent.TimeUnit
-
-// ⭕️ エラー回避のためフルパスでのインポートを明示
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // ⭕️ アプリ起動時に毎日リセットのスケジュールを登録
         setupDailyResetWork()
 
         setContent {
@@ -51,7 +45,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ⭕️ 毎日0:00に裏側でリセットを実行する関数（朝5時に変えたい場合は HOUR_OF_DAY を 5 に）
     private fun setupDailyResetWork() {
         val currentDate = Calendar.getInstance()
         val dueDate = Calendar.getInstance().apply {
@@ -66,12 +59,10 @@ class MainActivity : ComponentActivity() {
 
         val initialDelay = dueDate.timeInMillis - currentDate.timeInMillis
 
-        // 24時間周期のタスクを作成
         val dailyResetRequest = PeriodicWorkRequestBuilder<ResetWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
             .build()
 
-        // 重複防止の設定でWorkManagerに登録
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "DailyResetWork",
             ExistingPeriodicWorkPolicy.KEEP,
@@ -147,8 +138,7 @@ fun MainAppScreen(viewModel: GameViewModel) {
                 HomeScreen(
                     gameList = gameList,
                     onCheckedChange = { game, isChecked ->
-                        val updatedGame = game.copy(completed = if (isChecked) 1 else 0)
-                        viewModel.updateGame(updatedGame)
+                        viewModel.updateGame(game.copy(completed = isChecked))
                     },
                     onNavigateToRegister = {
                         navController.navigate(Screen.AddGame.createRoute())
@@ -159,8 +149,21 @@ fun MainAppScreen(viewModel: GameViewModel) {
                 )
             }
 
-            composable(Screen.Search.route) { SearchScreen() }
-            composable(Screen.Setting.route) { SettingScreen() }
+            composable(Screen.Search.route) {
+                SearchScreen(
+                    viewModel = viewModel,
+                    onGameClick = { gameId ->
+                        navController.navigate(Screen.AddGame.createRoute(gameId))
+                    },
+                    onCheckedChange = { game, isChecked ->
+                        viewModel.updateGame(game.copy(completed = isChecked))
+                    }
+                )
+            }
+
+            composable(Screen.Setting.route) {
+                SettingScreen(viewModel = viewModel)
+            }
 
             composable(
                 route = Screen.AddGame.route,

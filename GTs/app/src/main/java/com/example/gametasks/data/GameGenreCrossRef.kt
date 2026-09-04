@@ -1,12 +1,13 @@
 package com.example.gametasks.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
+import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "game_genres",
-    primaryKeys = ["game_id", "genre_id"],
     foreignKeys = [
         ForeignKey(
             entity = GameEntity::class,
@@ -21,9 +22,18 @@ import androidx.room.Index
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("genre_id")]
+    indices = [
+        Index("game_id"),
+        Index("genre_id")
+    ]
 )
 data class GameGenreCrossRef(
-    val game_id: Int,
-    val genre_id: Int
+    @PrimaryKey(autoGenerate = true)
+    val id: Int = 0,
+
+    @ColumnInfo(name = "game_id")
+    val gameId: Int,
+
+    @ColumnInfo(name = "genre_id")
+    val genreId: Int
 )

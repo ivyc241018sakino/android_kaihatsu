@@ -1,18 +1,39 @@
 package com.example.gametasks.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "games")
 data class GameEntity(
-    @PrimaryKey(autoGenerate = true) val game_id: Int = 0,
+    @PrimaryKey(autoGenerate = true)
+    @ColumnInfo(name = "game_id")
+    val gameId: Int = 0,
+
+    @ColumnInfo(name = "title")
     val title: String,
-    val memo: String,
-    val update_hour: Int,
-    val update_minute: Int,
-    val reminder_enabled: Int, // 0: OFF, 1: ON
-    val completed: Int,        // 0: 未完了, 1: 完了
-    val image_uri: String?,    // アイコン画像URI（未設定時はnull）
-    val created_at: Long,      // 作成日時（タイムスタンプ）
-    val updated_at: Long       // 更新日時（タイムスタンプ）
+
+    @ColumnInfo(name = "memo")
+    val memo: String = "",
+
+    @ColumnInfo(name = "update_hour")
+    val updateHour: Int = 0,
+
+    @ColumnInfo(name = "update_minute")
+    val updateMinute: Int = 0,
+
+    @ColumnInfo(name = "reminder_enabled")
+    val reminderEnabled: Boolean = false,
+
+    @ColumnInfo(name = "completed")
+    val completed: Boolean = false,
+
+    @ColumnInfo(name = "image_uri")
+    val imageUri: String? = null,
+
+    @ColumnInfo(name = "created_at")
+    val createdAt: Long = System.currentTimeMillis(),
+
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long = System.currentTimeMillis()
 )

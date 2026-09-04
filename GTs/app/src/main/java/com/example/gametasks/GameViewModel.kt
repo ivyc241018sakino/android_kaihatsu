@@ -8,100 +8,194 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.gametasks.data.AppDatabase
 import com.example.gametasks.data.GameEntity
+import com.example.gametasks.data.GameGenreCrossRef
+import com.example.gametasks.data.GamePlatformCrossRef
 import com.example.gametasks.data.GameWithDetails
-import kotlinx.coroutines.flow.Flow
+import com.example.gametasks.data.GenreEntity
+import com.example.gametasks.data.PlatformEntity
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val gameDao = AppDatabase.getDatabase(application).gameDao()
 
-    // データベース内のすべてのゲームを詳細（プラットフォーム等）付きでリアルタイムに監視するFlow
     val allGames: Flow<List<GameWithDetails>> = gameDao.getAllGamesWithDetails()
+    val genres: Flow<List<GenreEntity>> = gameDao.getAllGenres()
+    val platforms: Flow<List<PlatformEntity>> = gameDao.getAllPlatforms()
 
-    // --- 登録画面の入力フォーム用データ（状態） ---
+    // --- 検索・フィルター用ステート ---
+    val searchQuery = MutableStateFlow("")
+    val filterGenreId = MutableStateFlow<Int?>(null)
+    val filterPlatformId = MutableStateFlow<Int?>(null)
+    val filterCompleted = MutableStateFlow<Boolean?>(null) // null: 全て, true: 完了のみ, false: 未完了のみ
+
+    // 検索・フィルター適用済みのゲーム一覧
+    val filteredGames: StateFlow<List<GameWithDetails>> = combine(
+        allGames,
+        searchQuery,
+        filterGenreId,
+        filterPlatformId,
+        filterCompleted
+    ) { games, query, genreId, platformId, completed ->
+        games.filter { item ->
+            val matchesQuery = query.isBlank() ||
+                    item.game.title.contains(query, ignoreCase = true) ||
+                    item.game.memo.contains(query, ignoreCase = true)
+            val matchesGenre = genreId == null || item.genres.any { it.genreId == genreId }
+            val matchesPlatform = platformId == null || item.platforms.any { it.platformId == platformId }
+            val matchesCompleted = completed == null || item.game.completed == completed
+
+            matchesQuery && matchesGenre && matchesPlatform && matchesCompleted
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- 登録・編集フォーム状態 ---
     var titleInput by mutableStateOf("")
     var memoInput by mutableStateOf("")
     var updateHourInput by mutableStateOf(0)
     var updateMinuteInput by mutableStateOf(0)
     var reminderEnabledInput by mutableStateOf(false)
+    var selectedGenreId by mutableStateOf<Int?>(null)
+    var selectedPlatformId by mutableStateOf<Int?>(null)
 
-    // 入力フォームを一括リセットする関数
     fun clearInputs() {
         titleInput = ""
         memoInput = ""
         updateHourInput = 0
         updateMinuteInput = 0
         reminderEnabledInput = false
+        selectedGenreId = null
+        selectedPlatformId = null
     }
 
-    // ⭕️【追加】既存のゲームデータをIDから読み込んで入力フォームに自動セットする関数
     fun loadGameData(gameId: Int) {
         viewModelScope.launch {
             val gameWithDetails = gameDao.getGameWithDetailsById(gameId)
             if (gameWithDetails != null) {
                 val game = gameWithDetails.game
                 titleInput = game.title
-                memoInput = game.memo ?: ""
-                updateHourInput = game.update_hour
-                updateMinuteInput = game.update_minute
-                reminderEnabledInput = game.reminder_enabled == 1
+                memoInput = game.memo
+                updateHourInput = game.updateHour
+                updateMinuteInput = game.updateMinute
+                reminderEnabledInput = game.reminderEnabled
+                selectedGenreId = gameWithDetails.genres.firstOrNull()?.genreId
+                selectedPlatformId = gameWithDetails.platforms.firstOrNull()?.platformId
             }
         }
     }
 
-    // ⭕️【修正】新規保存と上書き編集の両方に対応した saveGame 関数
     fun saveGame(gameId: Int?, onSuccess: () -> Unit) {
-        if (titleInput.isBlank()) return // タイトルが空なら保存しない
+        if (titleInput.isBlank()) return
 
         viewModelScope.launch {
             val currentTime = System.currentTimeMillis()
 
-            if (gameId == null) {
-                // 新規登録モード
+            val targetGameId = if (gameId == null) {
                 val newGame = GameEntity(
                     title = titleInput,
                     memo = memoInput,
-                    update_hour = updateHourInput,
-                    update_minute = updateMinuteInput,
-                    reminder_enabled = if (reminderEnabledInput) 1 else 0,
-                    completed = 0, // 最初は未完了
-                    image_uri = null,
-                    created_at = currentTime,
-                    updated_at = currentTime
+                    updateHour = updateHourInput,
+                    updateMinute = updateMinuteInput,
+                    reminderEnabled = reminderEnabledInput,
+                    completed = false,
+                    imageUri = null,
+                    createdAt = currentTime,
+                    updatedAt = currentTime
                 )
-                gameDao.insertGame(newGame)
+                gameDao.insertGame(newGame).toInt()
             } else {
-                // 上書き編集モード（既存の完了状態や作成日時をキープする）
                 val existingDetails = gameDao.getGameWithDetailsById(gameId)
-                val completedStatus = existingDetails?.game?.completed ?: 0
-                val createdAtTime = existingDetails?.game?.created_at ?: currentTime
+                val completedStatus = existingDetails?.game?.completed ?: false
+                val createdAtTime = existingDetails?.game?.createdAt ?: currentTime
 
                 val updatedGame = GameEntity(
-                    game_id = gameId, // IDを指定することでRoomが既存データを「上書き」します
+                    gameId = gameId,
                     title = titleInput,
                     memo = memoInput,
-                    update_hour = updateHourInput,
-                    update_minute = updateMinuteInput,
-                    reminder_enabled = if (reminderEnabledInput) 1 else 0,
+                    updateHour = updateHourInput,
+                    updateMinute = updateMinuteInput,
+                    reminderEnabled = reminderEnabledInput,
                     completed = completedStatus,
-                    image_uri = existingDetails?.game?.image_uri,
-                    created_at = createdAtTime,
-                    updated_at = currentTime
+                    imageUri = existingDetails?.game?.imageUri,
+                    createdAt = createdAtTime,
+                    updatedAt = currentTime
                 )
                 gameDao.updateGame(updatedGame)
+                gameId
             }
 
-            // 入力欄をクリアして、画面を閉じる（onSuccess）を実行
+            gameDao.deleteGenresForGame(targetGameId)
+            gameDao.deletePlatformsForGame(targetGameId)
+
+            selectedGenreId?.let { genreId ->
+                gameDao.insertGameGenreCrossRef(
+                    GameGenreCrossRef(gameId = targetGameId, genreId = genreId)
+                )
+            }
+
+            selectedPlatformId?.let { platformId ->
+                gameDao.insertGamePlatformCrossRef(
+                    GamePlatformCrossRef(gameId = targetGameId, platformId = platformId)
+                )
+            }
+
             clearInputs()
             onSuccess()
         }
     }
 
-    // チェックボックスが押されたときに完了状態(completed)を更新する関数
+    // ゲーム削除処理
+    fun deleteGame(gameId: Int, onDeleteComplete: () -> Unit) {
+        viewModelScope.launch {
+            gameDao.deleteGenresForGame(gameId)
+            gameDao.deletePlatformsForGame(gameId)
+            val gameDetails = gameDao.getGameWithDetailsById(gameId)
+            if (gameDetails != null) {
+                gameDao.deleteGame(gameDetails.game)
+            }
+            clearInputs()
+            onDeleteComplete()
+        }
+    }
+
     fun updateGame(game: GameEntity) {
         viewModelScope.launch {
             gameDao.updateGame(game)
         }
+    }
+
+    // マスターデータ追加
+    fun addGenre(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            gameDao.insertGenres(listOf(GenreEntity(genreName = name)))
+        }
+    }
+
+    fun addPlatform(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            gameDao.insertPlatforms(listOf(PlatformEntity(platformName = name)))
+        }
+    }
+
+    fun deleteGenre(genre: GenreEntity) {
+        viewModelScope.launch {
+            gameDao.deleteGenre(genre)
+        }
+    }
+
+    fun deletePlatform(platform: PlatformEntity) {
+        viewModelScope.launch {
+            gameDao.deletePlatform(platform)
+        }
+    }
+
+    fun clearSearchFilters() {
+        searchQuery.value = ""
+        filterGenreId.value = null
+        filterPlatformId.value = null
+        filterCompleted.value = null
     }
 }
