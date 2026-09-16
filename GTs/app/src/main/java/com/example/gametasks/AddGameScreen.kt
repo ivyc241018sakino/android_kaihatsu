@@ -1,33 +1,35 @@
 package com.example.gametasks
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.gametasks.ui.theme.DarkRed
-import com.example.gametasks.ui.theme.GoldAccent
+import coil.compose.rememberAsyncImagePainter
+import com.example.gametasks.ui.FutureButton
 import com.example.gametasks.ui.theme.PurpleButton
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddGameScreen(
     viewModel: GameViewModel,
@@ -36,6 +38,20 @@ fun AddGameScreen(
 ) {
     val genres by viewModel.genres.collectAsState(initial = emptyList())
     val platforms by viewModel.platforms.collectAsState(initial = emptyList())
+    val isReduceMotion by viewModel.isReduceMotion.collectAsState()
+    val context = LocalContext.current
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            context.contentResolver.takePersistableUriPermission(
+                it,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            viewModel.imageUriInput = it.toString()
+        }
+    }
 
     LaunchedEffect(gameId) {
         if (gameId != null) {
@@ -51,13 +67,13 @@ fun AddGameScreen(
                 title = { Text(if (gameId == null) "ゲームを追加" else "ゲームを編集", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onSaved) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "戻る")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground
                 )
             )
         },
@@ -81,56 +97,68 @@ fun AddGameScreen(
                         .size(80.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surface)
-                        .border(1.dp, Color.Gray, RoundedCornerShape(12.dp))
-                        .clickable { /* 画像選択処理 */ },
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                        .clickable { launcher.launch(arrayOf("image/*")) },
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Image, contentDescription = null, tint = Color.Gray)
+                    if (viewModel.imageUriInput != null) {
+                        Image(
+                            painter = rememberAsyncImagePainter(viewModel.imageUriInput),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.width(16.dp))
-                Text("アイコンを選択", color = Color.Gray, fontSize = 14.sp)
+                Text("アイコンを選択", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             }
 
             // ゲーム名
             Column {
-                Text("ゲーム名", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("ゲーム名", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = viewModel.titleInput,
                     onValueChange = { viewModel.titleInput = it },
-                    placeholder = { Text("(例) 原神", color = Color.DarkGray) },
+                    placeholder = { Text("(例) 原神", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surface,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedBorderColor = GoldAccent
+                        focusedBorderColor = MaterialTheme.colorScheme.secondary
                     )
                 )
             }
 
-            // ジャンル選択 (複数選択可のUI)
+            // ジャンル選択
             Column {
-                Text("ジャンル", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("ジャンル (複数選択可)", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     genres.forEach { genre ->
                         FilterChip(
-                            selected = viewModel.selectedGenreId == genre.genreId,
+                            selected = viewModel.selectedGenreIds.contains(genre.genreId),
                             onClick = {
-                                viewModel.selectedGenreId = if (viewModel.selectedGenreId == genre.genreId) null else genre.genreId
+                                viewModel.toggleGenreSelection(genre.genreId)
                             },
                             label = { Text(genre.genreName) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = GoldAccent,
-                                selectedLabelColor = Color.Black,
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                labelColor = Color.White
-                            )
+                                selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondary,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            border = null
                         )
                     }
                 }
@@ -138,41 +166,75 @@ fun AddGameScreen(
 
             // プラットフォーム選択
             Column {
-                Text("プラットフォーム", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("プラットフォーム (複数選択可)", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     platforms.forEach { platform ->
                         FilterChip(
-                            selected = viewModel.selectedPlatformId == platform.platformId,
+                            selected = viewModel.selectedPlatformIds.contains(platform.platformId),
                             onClick = {
-                                viewModel.selectedPlatformId = if (viewModel.selectedPlatformId == platform.platformId) null else platform.platformId
+                                viewModel.togglePlatformSelection(platform.platformId)
                             },
                             label = { Text(platform.platformName) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = GoldAccent,
-                                selectedLabelColor = Color.Black,
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                labelColor = Color.White
-                            )
+                                selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondary,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            border = null
                         )
                     }
                 }
             }
 
             // 更新時間
+            var showTimePicker by remember { mutableStateOf(false) }
+
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showTimePicker = true },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("更新時間", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("更新時間", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                 Text(
-                    text = String.format("%02d:%02d ⏰", viewModel.updateHourInput, viewModel.updateMinuteInput),
-                    color = GoldAccent,
+                    text = String.format(Locale.getDefault(), "%02d:%02d ⏰", viewModel.updateHourInput, viewModel.updateMinuteInput),
+                    color = MaterialTheme.colorScheme.secondary,
                     fontSize = 18.sp
+                )
+            }
+
+            if (showTimePicker) {
+                val timePickerState = rememberTimePickerState(
+                    initialHour = viewModel.updateHourInput,
+                    initialMinute = viewModel.updateMinuteInput,
+                    is24Hour = true
+                )
+                AlertDialog(
+                    onDismissRequest = { showTimePicker = false },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.updateHourInput = timePickerState.hour
+                            viewModel.updateMinuteInput = timePickerState.minute
+                            showTimePicker = false
+                        }) {
+                            Text("OK", color = MaterialTheme.colorScheme.secondary)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showTimePicker = false }) {
+                            Text("キャンセル", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    text = {
+                        TimePicker(state = timePickerState)
+                    },
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             }
 
@@ -182,61 +244,51 @@ fun AddGameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("リマインダー", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("リマインダー", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (viewModel.reminderEnabledInput) "ON" else "OFF", color = GoldAccent, modifier = Modifier.padding(end = 8.dp))
+                    Text(if (viewModel.reminderEnabledInput) "ON" else "OFF", color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(end = 8.dp))
                     Switch(
                         checked = viewModel.reminderEnabledInput,
                         onCheckedChange = { viewModel.reminderEnabledInput = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = GoldAccent, checkedTrackColor = GoldAccent.copy(alpha = 0.5f))
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.secondary,
+                            checkedTrackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)
+                        )
                     )
                 }
             }
 
             // メモ
             Column {
-                Text("メモ (任意)", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("メモ (任意)", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = viewModel.memoInput,
                     onValueChange = { viewModel.memoInput = it },
-                    placeholder = { Text("デイリー任務の内容など...", color = Color.DarkGray) },
+                    placeholder = { Text("デイリー任務の内容など...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surface,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedBorderColor = GoldAccent
+                        focusedBorderColor = MaterialTheme.colorScheme.secondary
                     )
                 )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 保存・削除ボタン
-            Button(
+            // 保存ボタン
+            FutureButton(
                 onClick = { viewModel.saveGame(gameId) { onSaved() } },
+                isReduceMotion = isReduceMotion,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PurpleButton)
+                containerColor = PurpleButton,
+                contentColor = Color.White,
+                shape = RoundedCornerShape(8.dp)
             ) {
                 Text("保存する", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
-
-            if (gameId != null) {
-                OutlinedButton(
-                    onClick = { viewModel.deleteGame(gameId) { onSaved() } },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = borderStroke(1.dp, DarkRed)
-                ) {
-                    Text("削除する", color = Color(0xFFCF6679), fontSize = 18.sp)
-                }
             }
         }
     }
 }
-
-@Composable
-fun borderStroke(width: androidx.compose.ui.unit.Dp, color: Color) = androidx.compose.foundation.BorderStroke(width, color)

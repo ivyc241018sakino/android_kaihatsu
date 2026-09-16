@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
         GameGenreCrossRef::class,
         GamePlatformCrossRef::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,43 +36,36 @@ abstract class AppDatabase : RoomDatabase() {
                     "game_tasks_database"
                 )
                     .fallbackToDestructiveMigration()
-                    .addCallback(AppDatabaseCallback())
+                    .addCallback(AppDatabaseCallback(context))
                     .build()
                 INSTANCE = instance
                 instance
             }
         }
 
-        private class AppDatabaseCallback : RoomDatabase.Callback() {
+        private class AppDatabaseCallback(private val context: Context) : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
-                INSTANCE?.let { database ->
-                    CoroutineScope(Dispatchers.IO).launch {
-                        populateInitialData(database.gameDao())
-                    }
+                CoroutineScope(Dispatchers.IO).launch {
+                    populateInitialData(getDatabase(context).gameDao())
                 }
             }
 
             private suspend fun populateInitialData(gameDao: GameDao) {
                 // ジャンル初期データの挿入
                 val initialGenres = listOf(
-                    GenreEntity(genreName = "RPG"),
-                    GenreEntity(genreName = "アクション"),
-                    GenreEntity(genreName = "パズル"),
-                    GenreEntity(genreName = "シミュレーション"),
-                    GenreEntity(genreName = "戦略/ストラテジー"),
-                    GenreEntity(genreName = "リズム/音ゲー"),
-                    GenreEntity(genreName = "アドベンチャー")
+                    GenreEntity(genreName = "ターン制RPG"),
+                    GenreEntity(genreName = "オープンワールドRPG"),
+                    GenreEntity(genreName = "FPS")
                 )
                 gameDao.insertGenres(initialGenres)
 
                 // プラットフォーム初期データの挿入
                 val initialPlatforms = listOf(
-                    PlatformEntity(platformName = "iOS"),
-                    PlatformEntity(platformName = "Android"),
-                    PlatformEntity(platformName = "Nintendo Switch"),
-                    PlatformEntity(platformName = "PlayStation"),
-                    PlatformEntity(platformName = "PC")
+                    PlatformEntity(platformName = "スマホ"),
+                    PlatformEntity(platformName = "PC"),
+                    PlatformEntity(platformName = "PS5"),
+                    PlatformEntity(platformName = "SWITCH")
                 )
                 gameDao.insertPlatforms(initialPlatforms)
             }

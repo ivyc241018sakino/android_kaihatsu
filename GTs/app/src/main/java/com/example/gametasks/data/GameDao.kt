@@ -16,6 +16,18 @@ interface GameDao {
     @Delete
     suspend fun deleteGame(game: GameEntity)
 
+    @Query("DELETE FROM games WHERE game_id IN (:gameIds)")
+    suspend fun deleteGamesByIds(gameIds: List<Int>)
+
+    @Transaction
+    suspend fun deleteGamesWithRefs(gameIds: List<Int>) {
+        gameIds.forEach { id ->
+            deleteGenresForGame(id)
+            deletePlatformsForGame(id)
+        }
+        deleteGamesByIds(gameIds)
+    }
+
     // --- 中間テーブルの操作（紐づけの登録・削除） ---
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGameGenreCrossRef(crossRef: GameGenreCrossRef)
@@ -68,4 +80,11 @@ interface GameDao {
 
     @Delete
     suspend fun deletePlatform(platform: PlatformEntity)
+
+    // --- 達成度関連 ---
+    @Query("SELECT COUNT(*) FROM games")
+    suspend fun getGameCount(): Int
+
+    @Query("SELECT COUNT(*) FROM games WHERE completed = 1")
+    suspend fun getCompletedGameCount(): Int
 }
