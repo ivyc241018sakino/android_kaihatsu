@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "game_genres",
+    primaryKeys = ["game_id", "genre_id"],
     foreignKeys = [
         ForeignKey(
             entity = GameEntity::class,
@@ -28,9 +29,6 @@ import androidx.room.PrimaryKey
     ]
 )
 data class GameGenreCrossRef(
-    @PrimaryKey(autoGenerate = true)
-    val id: Int = 0,
-
     @ColumnInfo(name = "game_id")
     val gameId: Int,
 

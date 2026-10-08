@@ -2,6 +2,9 @@ package com.example.gametasks
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.util.Base64
+import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -17,12 +20,15 @@ import com.example.gametasks.data.PlatformEntity
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -34,6 +40,7 @@ data class GameBackupItem(
     val reminderEnabled: Boolean,
     val completed: Boolean,
     val imageUri: String?,
+    val packageName: String?,
     val genres: List<String>,
     val platforms: List<String>
 )
@@ -52,6 +59,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val DARK_MODE_KEY = booleanPreferencesKey("dark_mode")
     private val REDUCE_MOTION_KEY = booleanPreferencesKey("reduce_motion")
+    private val NOTIFICATIONS_ENABLED_KEY = booleanPreferencesKey("notifications_enabled")
+    private val LANGUAGE_KEY = stringPreferencesKey("language")
 
     val allGames: Flow<List<GameWithDetails>> = gameDao.getAllGamesWithDetails()
     val genres: Flow<List<GenreEntity>> = gameDao.getAllGenres()
@@ -70,12 +79,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // テーマ設定 (true: ダークモード, false: ライトモード)
     val isDarkMode: StateFlow<Boolean> = dataStore.data
         .map { preferences -> preferences[DARK_MODE_KEY] ?: true }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     // 動きを減らす設定
     val isReduceMotion: StateFlow<Boolean> = dataStore.data
-        .map { preferences -> preferences[REDUCE_MOTION_KEY] ?: false }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        .map { preferences -> preferences[REDUCE_MOTION_KEY] ?: true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    // 通知設定
+    val notificationsEnabled: StateFlow<Boolean> = dataStore.data
+        .map { preferences -> preferences[NOTIFICATIONS_ENABLED_KEY] ?: true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    // 言語設定
+    val currentLanguage: StateFlow<String> = dataStore.data
+        .map { preferences -> preferences[LANGUAGE_KEY] ?: "ja" }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "ja")
 
     fun toggleDarkMode(enabled: Boolean) {
         viewModelScope.launch {
@@ -89,6 +108,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             dataStore.edit { preferences ->
                 preferences[REDUCE_MOTION_KEY] = enabled
+            }
+        }
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            dataStore.edit { preferences ->
+                preferences[NOTIFICATIONS_ENABLED_KEY] = enabled
+            }
+        }
+    }
+
+    fun setLanguage(languageCode: String) {
+        viewModelScope.launch {
+            dataStore.edit { preferences ->
+                preferences[LANGUAGE_KEY] = languageCode
             }
         }
     }
@@ -131,8 +166,53 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var updateMinuteInput by mutableStateOf(0)
     var reminderEnabledInput by mutableStateOf(false)
     var imageUriInput by mutableStateOf<String?>(null)
+    var packageNameInput by mutableStateOf<String?>(null)
     var selectedGenreIds by mutableStateOf(setOf<Int>())
     var selectedPlatformIds by mutableStateOf(setOf<Int>())
+
+    // --- インストール済みアプリ取得用 ---
+    data class AppInfo(val name: String, val packageName: String, val iconUri: String)
+    var installedApps by mutableStateOf<List<AppInfo>>(emptyList())
+
+    fun loadInstalledApps(context: Context) {
+        if (installedApps.isNotEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val resolvedInfos = try {
+                pm.queryIntentActivities(mainIntent, 0)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            
+            val apps = resolvedInfos.map { 
+                AppInfo(
+                    name = it.loadLabel(pm).toString(),
+                    packageName = it.activityInfo.packageName,
+                    iconUri = "package:${it.activityInfo.packageName}"
+                )
+            }.distinctBy { it.packageName }.sortedBy { it.name }
+            
+            withContext(Dispatchers.Main) {
+                installedApps = apps
+            }
+        }
+    }
+
+    fun launchGameApp(context: Context, packageName: String) {
+        try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                context.startActivity(launchIntent)
+            } else {
+                Toast.makeText(context, "アプリが見つかりません", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "アプリの起動に失敗しました", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     fun toggleGenreSelection(genreId: Int) {
         selectedGenreIds = if (selectedGenreIds.contains(genreId)) {
@@ -157,6 +237,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         updateMinuteInput = 0
         reminderEnabledInput = false
         imageUriInput = null
+        packageNameInput = null
         selectedGenreIds = emptySet()
         selectedPlatformIds = emptySet()
     }
@@ -172,6 +253,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 updateMinuteInput = game.updateMinute
                 reminderEnabledInput = game.reminderEnabled
                 imageUriInput = game.imageUri
+                packageNameInput = game.packageName
                 selectedGenreIds = gameWithDetails.genres.map { it.genreId }.toSet()
                 selectedPlatformIds = gameWithDetails.platforms.map { it.platformId }.toSet()
             }
@@ -184,8 +266,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val currentTime = System.currentTimeMillis()
 
-            val targetGameId = if (gameId == null) {
-                val newGame = GameEntity(
+            val gameEntity = if (gameId == null) {
+                GameEntity(
                     title = titleInput,
                     memo = memoInput,
                     updateHour = updateHourInput,
@@ -193,16 +275,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     reminderEnabled = reminderEnabledInput,
                     completed = false,
                     imageUri = imageUriInput,
+                    packageName = packageNameInput,
                     createdAt = currentTime,
                     updatedAt = currentTime
                 )
-                gameDao.insertGame(newGame).toInt()
             } else {
                 val existingDetails = gameDao.getGameWithDetailsById(gameId)
                 val completedStatus = existingDetails?.game?.completed ?: false
                 val createdAtTime = existingDetails?.game?.createdAt ?: currentTime
 
-                val updatedGame = GameEntity(
+                GameEntity(
                     gameId = gameId,
                     title = titleInput,
                     memo = memoInput,
@@ -211,27 +293,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     reminderEnabled = reminderEnabledInput,
                     completed = completedStatus,
                     imageUri = imageUriInput,
+                    packageName = packageNameInput,
                     createdAt = createdAtTime,
                     updatedAt = currentTime
                 )
-                gameDao.updateGame(updatedGame)
-                gameId
             }
 
-            gameDao.deleteGenresForGame(targetGameId)
-            gameDao.deletePlatformsForGame(targetGameId)
-
-            selectedGenreIds.forEach { genreId ->
-                gameDao.insertGameGenreCrossRef(
-                    GameGenreCrossRef(gameId = targetGameId, genreId = genreId)
-                )
-            }
-
-            selectedPlatformIds.forEach { platformId ->
-                gameDao.insertGamePlatformCrossRef(
-                    GamePlatformCrossRef(gameId = targetGameId, platformId = platformId)
-                )
-            }
+            val targetGameId = gameDao.saveGameWithDetails(
+                game = gameEntity,
+                genreIds = selectedGenreIds,
+                platformIds = selectedPlatformIds
+            ).toInt()
 
             // 通知のスケジュール設定
             if (reminderEnabledInput) {
@@ -269,18 +341,65 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshGameStatuses()
+        cleanUpDuplicates()
+    }
+
+    private fun cleanUpDuplicates() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // ジャンルの重複整理
+                val allGenres = gameDao.getAllGenres().first()
+                val genreMap = mutableMapOf<String, Int>() // normalizedName -> keptId
+                
+                allGenres.forEach { genre ->
+                    val normalizedName = genre.genreName.trim().lowercase()
+                    val keptId = genreMap[normalizedName]
+                    if (keptId != null) {
+                        // 重複発見：リンクを付け替えてから削除
+                        gameDao.mergeGenreLinks(keptId, genre.genreId)
+                        gameDao.deleteGenreLinks(genre.genreId)
+                        gameDao.deleteGenre(genre)
+                    } else {
+                        genreMap[normalizedName] = genre.genreId
+                    }
+                }
+
+                // プラットフォームの重複整理
+                val allPlatforms = gameDao.getAllPlatforms().first()
+                val platformMap = mutableMapOf<String, Int>()
+                
+                allPlatforms.forEach { platform ->
+                    val normalizedName = platform.platformName.trim().lowercase()
+                    val keptId = platformMap[normalizedName]
+                    if (keptId != null) {
+                        gameDao.mergePlatformLinks(keptId, platform.platformId)
+                        gameDao.deletePlatformLinks(platform.platformId)
+                        gameDao.deletePlatform(platform)
+                    } else {
+                        platformMap[normalizedName] = platform.platformId
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun refreshGameStatuses() {
-        viewModelScope.launch {
-            val gamesWithDetails = gameDao.getAllGamesWithDetails().first()
-            val currentTime = System.currentTimeMillis()
-            val now = java.util.Calendar.getInstance()
-            
-            gamesWithDetails.forEach { item ->
-                val game = item.game
-                if (game.completed) {
-                    // そのゲームの直近の更新時間を計算
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // RoomはTransaction内での処理を推奨
+                val currentTime = System.currentTimeMillis()
+                val now = java.util.Calendar.getInstance().apply { timeInMillis = currentTime }
+                
+                // すべての完了済みゲームを一括取得
+                val games = gameDao.getAllGamesWithDetails().first().filter { it.game.completed }
+                if (games.isEmpty()) return@launch
+
+                val idsToReset = mutableListOf<Int>()
+                
+                games.forEach { item ->
+                    val game = item.game
                     val reset = java.util.Calendar.getInstance().apply {
                         timeInMillis = currentTime
                         set(java.util.Calendar.HOUR_OF_DAY, game.updateHour)
@@ -289,17 +408,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         set(java.util.Calendar.MILLISECOND, 0)
                     }
                     
-                    // 現在時刻が更新時間より前なら、直近の更新は「昨日」
                     if (now.before(reset)) {
                         reset.add(java.util.Calendar.DAY_OF_YEAR, -1)
                     }
-                    
-                    // もし完了ボタンが押された時間(updatedAt)が、その直近の更新時間より前なら、
-                    // それは「前サイクル分」の完了なので、リセットする
+
                     if (game.updatedAt < reset.timeInMillis) {
-                        gameDao.updateIndividualCompletionStatus(game.gameId, false, currentTime)
+                        idsToReset.add(game.gameId)
                     }
                 }
+
+                if (idsToReset.isNotEmpty()) {
+                    gameDao.updateCompletionStatusForGames(idsToReset, false, currentTime)
+                }
+            } catch (e: Exception) {
+                // クラッシュ回避のためのログ出力（本番環境では適切なログライブラリを使用）
+                android.util.Log.e("GameViewModel", "Error refreshing statuses", e)
             }
         }
     }
@@ -319,16 +442,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // マスターデータ追加
     fun addGenre(name: String) {
-        if (name.isBlank()) return
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) return
         viewModelScope.launch {
-            gameDao.insertGenres(listOf(GenreEntity(genreName = name)))
+            gameDao.insertGenres(listOf(GenreEntity(genreName = trimmedName)))
         }
     }
 
     fun addPlatform(name: String) {
-        if (name.isBlank()) return
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) return
         viewModelScope.launch {
-            gameDao.insertPlatforms(listOf(PlatformEntity(platformName = name)))
+            gameDao.insertPlatforms(listOf(PlatformEntity(platformName = trimmedName)))
         }
     }
 
@@ -368,6 +493,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     reminderEnabled = item.game.reminderEnabled,
                     completed = item.game.completed,
                     imageUri = item.game.imageUri,
+                    packageName = item.game.packageName,
                     genres = item.genres.map { it.genreName },
                     platforms = item.platforms.map { it.platformName }
                 )
@@ -375,7 +501,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             val backup = BackupData(currentGenres, currentPlatforms, gameBackups)
             val json = Gson().toJson(backup)
-            val code = java.util.Base64.getEncoder().encodeToString(json.toByteArray())
+            val code = Base64.encodeToString(json.toByteArray(), Base64.NO_WRAP)
             onGenerated(code)
         }
     }
@@ -383,31 +509,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun restoreFromCode(code: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
-                val json = String(java.util.Base64.getDecoder().decode(code))
+                val json = String(Base64.decode(code, Base64.NO_WRAP))
                 val type = object : TypeToken<BackupData>() {}.type
                 val backup: BackupData = Gson().fromJson(json, type)
 
                 // 1. ジャンルとプラットフォームの復元 (重複は無視)
-                val existingGenres = genres.first().map { it.genreName }
-                val newGenres = backup.genres.filter { it !in existingGenres }.map { GenreEntity(genreName = it) }
+                val existingGenres = genres.first().map { it.genreName.trim().lowercase() }
+                val newGenres = backup.genres
+                    .map { it.trim() }
+                    .filter { it.lowercase() !in existingGenres }
+                    .distinctBy { it.lowercase() }
+                    .map { GenreEntity(genreName = it) }
                 if (newGenres.isNotEmpty()) gameDao.insertGenres(newGenres)
 
-                val existingPlatforms = platforms.first().map { it.platformName }
-                val newPlatforms = backup.platforms.filter { it !in existingPlatforms }.map { PlatformEntity(platformName = it) }
+                val existingPlatforms = platforms.first().map { it.platformName.trim().lowercase() }
+                val newPlatforms = backup.platforms
+                    .map { it.trim() }
+                    .filter { it.lowercase() !in existingPlatforms }
+                    .distinctBy { it.lowercase() }
+                    .map { PlatformEntity(platformName = it) }
                 if (newPlatforms.isNotEmpty()) gameDao.insertPlatforms(newPlatforms)
 
-                // ID解決用の最新マップを取得
+                // ID解決用の最新マップを取得 (トリム・小文字でマッチング)
                 val allGenresList = genres.first()
-                val genreMap = allGenresList.associate { it.genreName to it.genreId }
+                val genreMap = allGenresList.associate { it.genreName.trim().lowercase() to it.genreId }
                 val allPlatformsList = platforms.first()
-                val platformMap = allPlatformsList.associate { it.platformName to it.platformId }
+                val platformMap = allPlatformsList.associate { it.platformName.trim().lowercase() to it.platformId }
 
                 // 2. ゲームの復元
-                val existingGameTitles = allGames.first().map { it.game.title }
+                val existingGameTitles = allGames.first().map { it.game.title.trim().lowercase() }
                 
                 backup.games.forEach { gameBackup ->
                     // 同じタイトルのゲームが既にある場合はスキップ（重複防止）
-                    if (gameBackup.title in existingGameTitles) return@forEach
+                    if (gameBackup.title.trim().lowercase() in existingGameTitles) return@forEach
 
                     val newGame = GameEntity(
                         title = gameBackup.title,
@@ -416,7 +550,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         updateMinute = gameBackup.updateMinute,
                         reminderEnabled = gameBackup.reminderEnabled,
                         completed = gameBackup.completed,
-                        imageUri = gameBackup.imageUri
+                        imageUri = gameBackup.imageUri,
+                        packageName = gameBackup.packageName
                     )
                     val gameId = gameDao.insertGame(newGame).toInt()
 

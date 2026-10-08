@@ -16,11 +16,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.gametasks.data.GameEntity
 import com.example.gametasks.ui.FutureButton
+import com.example.gametasks.R
 import com.example.gametasks.ui.theme.PurpleButton
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,25 +34,26 @@ fun SearchScreen(
     onGameClick: (Int) -> Unit,
     onCheckedChange: (GameEntity, Boolean) -> Unit
 ) {
-    val filteredGames by viewModel.filteredGames.collectAsState()
-    val genres by viewModel.genres.collectAsState(initial = emptyList())
-    val platforms by viewModel.platforms.collectAsState(initial = emptyList())
+    val filteredGames by viewModel.filteredGames.collectAsStateWithLifecycle()
+    val genres by viewModel.genres.collectAsStateWithLifecycle(initialValue = emptyList())
+    val platforms by viewModel.platforms.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    val query by viewModel.searchQuery.collectAsState()
-    val selectedGenreIds by viewModel.filterGenreIds.collectAsState()
-    val selectedPlatformIds by viewModel.filterPlatformIds.collectAsState()
-    val selectedCompleted by viewModel.filterCompleted.collectAsState()
-    val isReduceMotion by viewModel.isReduceMotion.collectAsState()
+    val query by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val selectedGenreIds by viewModel.filterGenreIds.collectAsStateWithLifecycle()
+    val selectedPlatformIds by viewModel.filterPlatformIds.collectAsStateWithLifecycle()
+    val selectedCompleted by viewModel.filterCompleted.collectAsStateWithLifecycle()
+    val isReduceMotion by viewModel.isReduceMotion.collectAsStateWithLifecycle()
 
-    val showResults by viewModel.showSearchResults.collectAsState()
+    val showResults by viewModel.showSearchResults.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("検索・フィルター", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.title_search_filter), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { if (showResults) viewModel.showSearchResults.value = false }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -76,7 +81,7 @@ fun SearchScreen(
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                         ) {
-                            Text("リセット", color = MaterialTheme.colorScheme.onBackground)
+                            Text(stringResource(R.string.action_reset), color = MaterialTheme.colorScheme.onBackground)
                         }
                         FutureButton(
                             onClick = { viewModel.showSearchResults.value = true },
@@ -86,7 +91,7 @@ fun SearchScreen(
                             contentColor = Color.White,
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("検索する", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.action_search), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -97,7 +102,7 @@ fun SearchScreen(
         if (showResults) {
             if (filteredGames.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                    Text("該当するゲームがありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.no_search_results), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(
@@ -105,12 +110,15 @@ fun SearchScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(filteredGames) { item ->
+                    items(filteredGames, key = { it.game.gameId }) { item ->
                         GameTaskCard(
                             item = item,
                             isReduceMotion = isReduceMotion,
                             onCheckedChange = { isChecked: Boolean ->
                                 onCheckedChange(item.game, isChecked)
+                            },
+                            onLaunchApp = { packageName ->
+                                viewModel.launchGameApp(context, packageName)
                             },
                             modifier = Modifier.clickable {
                                 onGameClick(item.game.gameId)
@@ -131,7 +139,7 @@ fun SearchScreen(
                     value = query,
                     onValueChange = { viewModel.searchQuery.value = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("検索キーワードを入力", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    placeholder = { Text(stringResource(R.string.search_keyword_placeholder), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                     shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -142,7 +150,7 @@ fun SearchScreen(
                 )
 
                 FilterSection(
-                    title = "ジャンル",
+                    title = stringResource(R.string.label_genre),
                     items = genres,
                     selectedIds = selectedGenreIds,
                     onItemClick = { id -> 
@@ -155,7 +163,7 @@ fun SearchScreen(
                 )
 
                 FilterSection(
-                    title = "プラットフォーム",
+                    title = stringResource(R.string.label_platform),
                     items = platforms,
                     selectedIds = selectedPlatformIds,
                     onItemClick = { id -> 
@@ -168,12 +176,12 @@ fun SearchScreen(
                 )
 
                 Column {
-                    Text("完了状態", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.label_status), color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusChip("すべて", selectedCompleted == null) { viewModel.filterCompleted.value = null }
-                        StatusChip("未完了", selectedCompleted == false) { viewModel.filterCompleted.value = false }
-                        StatusChip("完了", selectedCompleted == true) { viewModel.filterCompleted.value = true }
+                        StatusChip(stringResource(R.string.action_clear_all), selectedCompleted == null) { viewModel.filterCompleted.value = null }
+                        StatusChip(stringResource(R.string.tab_incomplete), selectedCompleted == false) { viewModel.filterCompleted.value = false }
+                        StatusChip(stringResource(R.string.tab_complete), selectedCompleted == true) { viewModel.filterCompleted.value = true }
                     }
                 }
             }
@@ -200,7 +208,7 @@ fun <T> FilterSection(
         ) {
             Text(title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
             Text(
-                "すべて",
+                stringResource(R.string.action_clear_all),
                 color = MaterialTheme.colorScheme.secondary,
                 fontSize = 12.sp,
                 modifier = Modifier.clickable { onClearAll() }

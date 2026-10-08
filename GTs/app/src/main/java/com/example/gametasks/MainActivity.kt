@@ -1,13 +1,19 @@
 package com.example.gametasks
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -21,11 +27,16 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -37,7 +48,9 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.gametasks.ui.theme.GameTasksTheme
+import android.content.res.Configuration
 import java.util.Calendar
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -46,7 +59,7 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
-        // 許可が得られた場合の処理
+        gameViewModel.setNotificationsEnabled(isGranted)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,17 +68,72 @@ class MainActivity : ComponentActivity() {
         checkNotificationPermission()
 
         setContent {
-            val isDarkMode by gameViewModel.isDarkMode.collectAsState()
+            val isDarkMode by gameViewModel.isDarkMode.collectAsStateWithLifecycle()
+            val currentLanguage by gameViewModel.currentLanguage.collectAsStateWithLifecycle()
 
-            GameTasksTheme(darkTheme = isDarkMode) {
-                MainAppScreen(viewModel = gameViewModel)
+            val activity = this
+            val context = remember(currentLanguage) {
+                val locale = Locale(currentLanguage)
+                Locale.setDefault(locale)
+                val configuration = Configuration(resources.configuration)
+                configuration.setLocale(locale)
+                createConfigurationContext(configuration)
+            }
+
+            CompositionLocalProvider(
+                LocalContext provides context,
+                LocalActivityResultRegistryOwner provides activity,
+                LocalOnBackPressedDispatcherOwner provides activity
+            ) {
+                GameTasksTheme(darkTheme = isDarkMode) {
+                    androidx.compose.material3.Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        MainAppScreen(
+                            viewModel = gameViewModel,
+                            onRequestPermission = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            onOpenSettings = {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", packageName, null)
+                                }
+                                startActivity(intent)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        gameViewModel.refreshGameStatuses()
+        try {
+            gameViewModel.refreshGameStatuses()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in refreshGameStatuses", e)
+        }
+        syncNotificationPermission()
+    }
+
+    private fun syncNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val isGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        val currentSetting = gameViewModel.notificationsEnabled.value
+        
+        // 状態が異なる場合のみ更新（軽量化）
+        if (isGranted != currentSetting) {
+            gameViewModel.setNotificationsEnabled(isGranted)
+        }
     }
 
     private fun checkNotificationPermission() {
@@ -107,12 +175,16 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainAppScreen(viewModel: GameViewModel) {
+fun MainAppScreen(
+    viewModel: GameViewModel,
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val gameList by viewModel.allGames.collectAsState(initial = emptyList())
+    val gameList by viewModel.allGames.collectAsStateWithLifecycle(initialValue = emptyList())
 
     Scaffold(
         bottomBar = {
@@ -122,8 +194,8 @@ fun MainAppScreen(viewModel: GameViewModel) {
                     contentColor = MaterialTheme.colorScheme.secondary
                 ) {
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Home, contentDescription = "ホーム") },
-                        label = { Text("ホーム") },
+                        icon = { Icon(Icons.Default.Home, contentDescription = stringResource(R.string.tab_all)) },
+                        label = { Text(stringResource(R.string.tab_all)) },
                         selected = currentRoute == Screen.Home.route,
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -143,8 +215,8 @@ fun MainAppScreen(viewModel: GameViewModel) {
                         }
                     )
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Search, contentDescription = "検索") },
-                        label = { Text("検索") },
+                        icon = { Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search)) },
+                        label = { Text(stringResource(R.string.action_search)) },
                         selected = currentRoute == Screen.Search.route,
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -164,8 +236,8 @@ fun MainAppScreen(viewModel: GameViewModel) {
                         }
                     )
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "設定") },
-                        label = { Text("設定") },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.title_settings)) },
+                        label = { Text(stringResource(R.string.title_settings)) },
                         selected = currentRoute == Screen.Setting.route,
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -222,7 +294,11 @@ fun MainAppScreen(viewModel: GameViewModel) {
             }
 
             composable(Screen.Setting.route) {
-                SettingScreen(viewModel = viewModel)
+                SettingScreen(
+                    viewModel = viewModel,
+                    onRequestPermission = onRequestPermission,
+                    onOpenSettings = onOpenSettings
+                )
             }
 
             composable(
@@ -241,7 +317,9 @@ fun MainAppScreen(viewModel: GameViewModel) {
                     gameId = gameId,
                     onSaved = {
                         navController.popBackStack()
-                    }
+                    },
+                    onRequestPermission = onRequestPermission,
+                    onOpenSettings = onOpenSettings
                 )
             }
         }

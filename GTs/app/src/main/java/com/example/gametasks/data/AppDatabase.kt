@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Database(
@@ -17,7 +18,7 @@ import kotlinx.coroutines.launch
         GameGenreCrossRef::class,
         GamePlatformCrossRef::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .fallbackToDestructiveMigration()
                     .addCallback(AppDatabaseCallback(context))
+                    // .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING) // 必要に応じて追加
                     .build()
                 INSTANCE = instance
                 instance
@@ -46,28 +48,41 @@ abstract class AppDatabase : RoomDatabase() {
         private class AppDatabaseCallback(private val context: Context) : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
-                CoroutineScope(Dispatchers.IO).launch {
-                    populateInitialData(getDatabase(context).gameDao())
-                }
+                seedDatabase()
             }
 
-            private suspend fun populateInitialData(gameDao: GameDao) {
-                // ジャンル初期データの挿入
-                val initialGenres = listOf(
-                    GenreEntity(genreName = "ターン制RPG"),
-                    GenreEntity(genreName = "オープンワールドRPG"),
-                    GenreEntity(genreName = "FPS")
-                )
-                gameDao.insertGenres(initialGenres)
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                super.onOpen(db)
+                // データベースが開かれるたびに、データが空なら投入する（破壊的移行対策）
+                seedDatabase()
+            }
 
-                // プラットフォーム初期データの挿入
-                val initialPlatforms = listOf(
-                    PlatformEntity(platformName = "スマホ"),
-                    PlatformEntity(platformName = "PC"),
-                    PlatformEntity(platformName = "PS5"),
-                    PlatformEntity(platformName = "SWITCH")
-                )
-                gameDao.insertPlatforms(initialPlatforms)
+            private fun seedDatabase() {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val dao = getDatabase(context).gameDao()
+                    // すでにデータがある場合はスキップして二重登録を防ぐ
+                    if (dao.getAllGenres().first().isEmpty()) {
+                        val initialGenres = listOf(
+                            GenreEntity(genreName = "ターン制RPG"),
+                            GenreEntity(genreName = "オープンワールドRPG"),
+                            GenreEntity(genreName = "FPS"),
+                            GenreEntity(genreName = "アクション"),
+                            GenreEntity(genreName = "シミュレーション")
+                        )
+                        dao.insertGenres(initialGenres)
+                    }
+
+                    if (dao.getAllPlatforms().first().isEmpty()) {
+                        val initialPlatforms = listOf(
+                            PlatformEntity(platformName = "スマホ"),
+                            PlatformEntity(platformName = "PC"),
+                            PlatformEntity(platformName = "PS5"),
+                            PlatformEntity(platformName = "Switch"),
+                            PlatformEntity(platformName = "Xbox")
+                        )
+                        dao.insertPlatforms(initialPlatforms)
+                    }
+                }
             }
         }
     }

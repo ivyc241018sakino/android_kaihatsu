@@ -31,6 +31,9 @@ data class GameEntity(
     @ColumnInfo(name = "image_uri")
     val imageUri: String? = null,
 
+    @ColumnInfo(name = "package_name")
+    val packageName: String? = null,
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis(),
 

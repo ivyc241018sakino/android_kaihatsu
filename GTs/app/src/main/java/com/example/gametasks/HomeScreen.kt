@@ -14,6 +14,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
@@ -34,16 +36,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import coil.compose.rememberAsyncImagePainter
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.gametasks.GameViewModel
 import com.example.gametasks.data.GameEntity
 import com.example.gametasks.data.GameWithDetails
 import com.example.gametasks.ui.AnimatedText
 import com.example.gametasks.ui.FutureButton
+import com.example.gametasks.R
 import com.example.gametasks.ui.theme.GoldAccent
 import com.example.gametasks.ui.theme.PurpleButton
 
@@ -57,30 +63,37 @@ fun HomeScreen(
     viewModel: GameViewModel // ViewModelを追加
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabLabels = listOf("すべて", "未完了", "完了")
+    val tabLabels = listOf(
+        stringResource(R.string.tab_all),
+        stringResource(R.string.tab_incomplete),
+        stringResource(R.string.tab_complete)
+    )
 
-    val searchQuery by viewModel.homeSearchQuery.collectAsState()
-    val isReduceMotion by viewModel.isReduceMotion.collectAsState()
+    val searchQuery by viewModel.homeSearchQuery.collectAsStateWithLifecycle(initialValue = "")
+    val isReduceMotion by viewModel.isReduceMotion.collectAsStateWithLifecycle(initialValue = false)
+    val context = LocalContext.current
 
     // 複数選択モードの状態
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedGameIds by remember { mutableStateOf(setOf<Int>()) }
 
-    val filteredList = remember(gameList, selectedTab, searchQuery) {
-        val tabFiltered = when (selectedTab) {
-            1 -> gameList.filter { !it.game.completed }
-            2 -> gameList.filter { it.game.completed }
-            else -> gameList
-        }
-        
-        if (searchQuery.isBlank()) {
-            tabFiltered
-        } else {
-            tabFiltered.filter { item ->
-                item.game.title.contains(searchQuery, ignoreCase = true) ||
-                item.game.memo.contains(searchQuery, ignoreCase = true) ||
-                item.genres.any { it.genreName.contains(searchQuery, ignoreCase = true) } ||
-                item.platforms.any { it.platformName.contains(searchQuery, ignoreCase = true) }
+    val filteredList by remember(gameList, selectedTab, searchQuery) {
+        derivedStateOf {
+            val tabFiltered = when (selectedTab) {
+                1 -> gameList.filter { !it.game.completed }
+                2 -> gameList.filter { it.game.completed }
+                else -> gameList
+            }
+            
+            if (searchQuery.isBlank()) {
+                tabFiltered
+            } else {
+                tabFiltered.filter { item ->
+                    item.game.title.contains(searchQuery, ignoreCase = true) ||
+                    item.game.memo.contains(searchQuery, ignoreCase = true) ||
+                    item.genres.any { it.genreName.contains(searchQuery, ignoreCase = true) } ||
+                    item.platforms.any { it.platformName.contains(searchQuery, ignoreCase = true) }
+                }
             }
         }
     }
@@ -91,6 +104,15 @@ fun HomeScreen(
         visible = true
     }
 
+    // スクロール状態の管理
+    val listState = rememberLazyListState()
+    val showFab by remember {
+        derivedStateOf {
+            // 一80%くらい一番上にいるとき、またはスクロールしていない時のみ表示
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 100
+        }
+    }
+
     Scaffold(
         topBar = {
             Column(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
@@ -98,7 +120,7 @@ fun HomeScreen(
                     title = {
                         if (isSelectionMode) {
                             AnimatedText(
-                                text = "${selectedGameIds.size} 件選択中",
+                                text = stringResource(R.string.selection_count, selectedGameIds.size),
                                 isReduceMotion = isReduceMotion,
                                 color = MaterialTheme.colorScheme.secondary,
                                 fontWeight = FontWeight.Bold,
@@ -106,7 +128,7 @@ fun HomeScreen(
                             )
                         } else {
                             AnimatedText(
-                                text = "Daily Tasks",
+                                text = stringResource(R.string.title_daily_tasks),
                                 isReduceMotion = isReduceMotion,
                                 color = MaterialTheme.colorScheme.secondary,
                                 fontWeight = FontWeight.ExtraBold,
@@ -120,7 +142,7 @@ fun HomeScreen(
                                 isSelectionMode = false
                                 selectedGameIds = emptySet()
                             }) {
-                                Icon(Icons.Default.Close, contentDescription = "選択解除")
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_deselect))
                             }
                         }
                     },
@@ -133,7 +155,7 @@ fun HomeScreen(
                             }) {
                                 Icon(
                                     Icons.Default.Delete,
-                                    contentDescription = "削除",
+                                    contentDescription = stringResource(R.string.action_delete),
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -147,7 +169,7 @@ fun HomeScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.homeSearchQuery.value = it },
-                    placeholder = { Text("検索 (タイトル・ジャンル等)", fontSize = 12.sp) },
+                    placeholder = { Text(stringResource(R.string.search_placeholder), fontSize = 12.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -195,7 +217,11 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            if (!isSelectionMode) {
+            AnimatedVisibility(
+                visible = showFab && !isSelectionMode,
+                enter = scaleIn(initialScale = 0.7f) + fadeIn(),
+                exit = scaleOut(targetScale = 0.7f) + fadeOut()
+            ) {
                 FutureButton(
                     onClick = onNavigateToRegister,
                     isReduceMotion = isReduceMotion,
@@ -203,7 +229,7 @@ fun HomeScreen(
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = CircleShape
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "ゲームを追加")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_game_content_desc))
                 }
             }
         },
@@ -214,18 +240,26 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                Text("タスクはありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.no_tasks),
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Medium
+                )
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(filteredList.size, key = { filteredList[it].game.gameId }) { index ->
-                    val item = filteredList[index]
+                items(
+                    items = filteredList,
+                    key = { it.game.gameId }
+                ) { item ->
+                    val index = filteredList.indexOf(item)
                     val isSelected = selectedGameIds.contains(item.game.gameId)
                     
                     // 近未来的なアニメーション設定
@@ -258,6 +292,9 @@ fun HomeScreen(
                             if (!isSelectionMode) {
                                 onCheckedChange(item.game, isChecked)
                             }
+                        },
+                        onLaunchApp = { packageName ->
+                            viewModel.launchGameApp(context, packageName)
                         },
                         modifier = Modifier
                             .graphicsLayer(
@@ -300,39 +337,29 @@ fun GameTaskCard(
     item: GameWithDetails,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    onLaunchApp: (String) -> Unit = {},
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
     isReduceMotion: Boolean = false
 ) {
     val game = item.game
 
-    // ネオン調のグロー効果アニメーション
-    val infiniteTransition = rememberInfiniteTransition(label = "neon")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
-
-    val borderColor = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary.copy(alpha = glowAlpha)
-    val borderAlphaFinal = if (isReduceMotion) 0.8f else glowAlpha
+    // パフォーマンス向上のため、無限アニメーションを削除または簡略化
+    // 選択時のみわずかに強調する程度に留める
+    val borderColor = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
-                this.shadowElevation = if (isReduceMotion) 4f else 8f * glowAlpha
+                this.shadowElevation = if (isSelected) 8f else 2f
                 this.shape = RoundedCornerShape(12.dp)
                 this.clip = true
             },
         color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = if (isSelected) 12.dp else 4.dp,
-        border = BorderStroke(2.dp, borderColor.copy(alpha = borderAlphaFinal))
+        tonalElevation = if (isSelected) 8.dp else 2.dp,
+        border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor)
     ) {
         Row(
             modifier = Modifier
@@ -348,13 +375,38 @@ fun GameTaskCard(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                if (game.imageUri != null) {
-                    Image(
-                        painter = rememberAsyncImagePainter(game.imageUri),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
+                val context = LocalContext.current
+                // PackageManagerの呼び出しを最適化
+                val iconModel = remember(game.imageUri, game.packageName) {
+                    // imageUriがあればそれを優先、なければpackageNameを渡す（Fetcherが処理する）
+                    game.imageUri ?: game.packageName?.let { "package:$it" }
+                }
+                
+                if (iconModel != null) {
+                    val request = remember(iconModel) {
+                        coil.request.ImageRequest.Builder(context)
+                            .data(iconModel)
+                            .crossfade(false)
+                            .allowHardware(false)
+                            .build()
+                    }
+                    val painter = rememberAsyncImagePainter(model = request)
+                    
+                    val state = painter.state
+                    if (state is coil.compose.AsyncImagePainter.State.Error) {
+                        Text(
+                            game.title.take(1),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Image(
+                            painter = painter,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
                 } else {
                     Text(
                         game.title.take(1),
@@ -399,6 +451,33 @@ fun GameTaskCard(
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
+            }
+
+            // アプリ起動ボタン (packageNameがある場合のみ表示)
+            if (game.packageName != null) {
+                Surface(
+                    onClick = { onLaunchApp(game.packageName) },
+                    modifier = Modifier
+                        .size(56.dp)
+                        .padding(4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 2.dp
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.RocketLaunch,
+                            contentDescription = stringResource(R.string.launch_app),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
             }
 
             // カスタムチェックボックス（丸いデザイン）

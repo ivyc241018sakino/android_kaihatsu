@@ -20,33 +20,43 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.gametasks.ui.theme.DarkRed
 import com.example.gametasks.ui.theme.GoldAccent
+import com.example.gametasks.R
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingScreen(
-    viewModel: GameViewModel
+    viewModel: GameViewModel,
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
-    val genres by viewModel.genres.collectAsState(initial = emptyList())
-    val platforms by viewModel.platforms.collectAsState(initial = emptyList())
-    val isDarkMode by viewModel.isDarkMode.collectAsState()
-    val isReduceMotion by viewModel.isReduceMotion.collectAsState()
+    val genres by viewModel.genres.collectAsStateWithLifecycle(initialValue = emptyList())
+    val platforms by viewModel.platforms.collectAsStateWithLifecycle(initialValue = emptyList())
+    val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
+    val isReduceMotion by viewModel.isReduceMotion.collectAsStateWithLifecycle()
+    val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
+    val currentLanguage by viewModel.currentLanguage.collectAsStateWithLifecycle()
 
     var showAboutDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showPermissionRequestDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("設定", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.title_settings), fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground
@@ -69,22 +79,28 @@ fun SettingScreen(
             }
 
             item {
-                Text("通知設定", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
-                var notificationsMasterEnabled by remember { mutableStateOf(true) }
-                SettingItemWithSwitch("通知を受け取る", notificationsMasterEnabled) {
-                    notificationsMasterEnabled = it
+                Text(stringResource(R.string.section_notification), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+                
+                SettingItemWithSwitch(stringResource(R.string.setting_notifications), notificationsEnabled) { checked ->
+                    if (checked) {
+                        // オフからオンにする場合、権限を確認
+                        showPermissionRequestDialog = true
+                    } else {
+                        // オンからオフにする場合はそのまま
+                        viewModel.setNotificationsEnabled(false)
+                    }
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
             }
 
             item {
-                Text("マスターデータ管理", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                Text(stringResource(R.string.section_master_data), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             }
 
             // ジャンル管理
             item {
                 MasterDataManagementSection(
-                    title = "ジャンルの管理",
+                    title = stringResource(R.string.label_manage_genres),
                     items = genres.map { it.genreName },
                     onAdd = { viewModel.addGenre(it) },
                     onDelete = { name -> 
@@ -96,7 +112,7 @@ fun SettingScreen(
             // プラットフォーム管理
             item {
                 MasterDataManagementSection(
-                    title = "プラットフォームの管理",
+                    title = stringResource(R.string.label_manage_platforms),
                     items = platforms.map { it.platformName },
                     onAdd = { viewModel.addPlatform(it) },
                     onDelete = { name ->
@@ -106,25 +122,34 @@ fun SettingScreen(
             }
 
             item {
+                val languageDisplayName = when(currentLanguage) {
+                    "en" -> "English"
+                    "zh" -> "中文"
+                    "ko" -> "한국어"
+                    else -> "日本語"
+                }
+                SettingItemWithArrow(stringResource(R.string.setting_language), languageDisplayName) {
+                    showLanguageDialog = true
+                }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 
                 SettingItemWithSwitch(
-                    title = if (isDarkMode) "ダークモード: ON" else "ダークモード: OFF",
+                    title = stringResource(R.string.setting_dark_mode) + ": " + (if (isDarkMode) stringResource(R.string.label_on) else stringResource(R.string.label_off)),
                     checked = isDarkMode,
                     onCheckedChange = { viewModel.toggleDarkMode(it) }
                 )
 
                 SettingItemWithSwitch(
-                    title = if (isReduceMotion) "動きを減らす: ON" else "動きを減らす: OFF",
+                    title = stringResource(R.string.setting_reduce_motion) + ": " + (if (isReduceMotion) stringResource(R.string.label_on) else stringResource(R.string.label_off)),
                     checked = isReduceMotion,
                     onCheckedChange = { viewModel.toggleReduceMotion(it) }
                 )
 
-                SettingItemWithArrow("バックアップ / 復元", "") {
+                SettingItemWithArrow(stringResource(R.string.setting_backup_restore), "") {
                     showBackupDialog = true
                 }
                 
-                SettingItemWithArrow("アプリについて", "") {
+                SettingItemWithArrow(stringResource(R.string.setting_about), "") {
                     showAboutDialog = true
                 }
                 
@@ -133,24 +158,98 @@ fun SettingScreen(
         }
     }
 
+    if (showPermissionRequestDialog) {
+        AlertDialog(
+            onDismissRequest = { showPermissionRequestDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPermissionRequestDialog = false
+                    onRequestPermission()
+                }) {
+                    Text(stringResource(R.string.action_allow), color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPermissionRequestDialog = false
+                    onOpenSettings()
+                }) {
+                    Text(stringResource(R.string.action_open_settings), color = MaterialTheme.colorScheme.secondary)
+                }
+            },
+            title = { Text(stringResource(R.string.dialog_permission_title), fontWeight = FontWeight.Bold) },
+            text = {
+                Text(stringResource(R.string.dialog_permission_text))
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurface
+        )
+    }
+
     if (showAboutDialog) {
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
             confirmButton = {
                 TextButton(onClick = { showAboutDialog = false }) {
-                    Text("閉じる", color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.action_close), color = MaterialTheme.colorScheme.primary)
                 }
             },
-            title = { Text("アプリについて", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.setting_about), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "このアプリは、主にスマホゲームのデイリー消化のための補助アプリです。\nご自身で、ジャンルや、内容を追加しながら、使いやすい自分だけのアプリにしましょう。",
+                    stringResource(R.string.about_text),
                     lineHeight = 24.sp
                 )
             },
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onSurface,
             textContentColor = MaterialTheme.colorScheme.onSurface
+        )
+    }
+
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text(stringResource(R.string.setting_language), fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    val languages = listOf(
+                        "ja" to "日本語",
+                        "en" to "English",
+                        "zh" to "中文",
+                        "ko" to "한국어"
+                    )
+                    languages.forEach { (code, name) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = (currentLanguage == code),
+                                onClick = {
+                                    viewModel.setLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(name, fontSize = 16.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 
@@ -174,17 +273,18 @@ fun BackupRestoreDialog(
     var backupCode by remember { mutableStateOf("") }
     var inputCode by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("バックアップ / 復元", fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.setting_backup_restore), fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Column {
-                    Text("バックアップコードの発行", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(stringResource(R.string.backup_issue_code), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = {
@@ -194,7 +294,7 @@ fun BackupRestoreDialog(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("コードを生成")
+                        Text(stringResource(R.string.action_generate_code))
                     }
                     if (backupCode.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -206,9 +306,9 @@ fun BackupRestoreDialog(
                             trailingIcon = {
                                 TextButton(onClick = {
                                     clipboardManager.setText(AnnotatedString(backupCode))
-                                    onShowSnackbar("コピーしました")
+                                    onShowSnackbar(context.getString(R.string.toast_copied))
                                 }) {
-                                    Text("コピー")
+                                    Text(stringResource(R.string.action_copy))
                                 }
                             }
                         )
@@ -218,12 +318,12 @@ fun BackupRestoreDialog(
                 HorizontalDivider()
 
                 Column {
-                    Text("コードから復元", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(stringResource(R.string.backup_restore_from_code), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = inputCode,
                         onValueChange = { inputCode = it },
-                        placeholder = { Text("コードを貼り付け") },
+                        placeholder = { Text(stringResource(R.string.placeholder_paste_code)) },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -231,24 +331,24 @@ fun BackupRestoreDialog(
                         onClick = {
                             viewModel.restoreFromCode(inputCode) { success ->
                                 if (success) {
-                                    onShowSnackbar("復元が完了しました")
+                                    onShowSnackbar(context.getString(R.string.toast_restore_complete))
                                     onDismiss()
                                 } else {
-                                    onShowSnackbar("無効なコードです")
+                                    onShowSnackbar(context.getString(R.string.toast_invalid_code))
                                 }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = inputCode.isNotEmpty()
                     ) {
-                        Text("復元を実行")
+                        Text(stringResource(R.string.action_execute_restore))
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("閉じる")
+                Text(stringResource(R.string.action_close))
             }
         },
         containerColor = MaterialTheme.colorScheme.surface
@@ -298,7 +398,7 @@ fun SettingItemWithArrow(title: String, value: String, onClick: () -> Unit = {})
 
 @Composable
 fun AchievementSection(viewModel: GameViewModel, isReduceMotion: Boolean) {
-    val todayRate by viewModel.todayAchievement.collectAsState(initial = 0.0)
+    val todayRate by viewModel.todayAchievement.collectAsStateWithLifecycle(initialValue = 0.0)
     
     // 達成率のアニメーション
     val animatedRate by animateFloatAsState(
@@ -320,7 +420,7 @@ fun AchievementSection(viewModel: GameViewModel, isReduceMotion: Boolean) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("今日の達成度", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(stringResource(R.string.label_today_achievement), color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
                 text = String.format(java.util.Locale.getDefault(), "%.0f%%", animatedRate * 100),
                 fontSize = 20.sp,
@@ -349,7 +449,7 @@ fun AchievementSection(viewModel: GameViewModel, isReduceMotion: Boolean) {
         
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "※本日のタスクの完了率を表示しています。",
+            stringResource(R.string.achievement_note),
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -380,7 +480,7 @@ fun MasterDataManagementSection(
                 value = textInput,
                 onValueChange = { textInput = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("新規追加...", fontSize = 12.sp) },
+                placeholder = { Text(stringResource(R.string.placeholder_add_new), fontSize = 12.sp) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.secondary,
@@ -395,7 +495,7 @@ fun MasterDataManagementSection(
                     textInput = ""
                 }
             }) {
-                Text("追加", color = MaterialTheme.colorScheme.secondary)
+                Text(stringResource(R.string.action_add), color = MaterialTheme.colorScheme.secondary)
             }
         }
         
@@ -412,7 +512,7 @@ fun MasterDataManagementSection(
             ) {
                 Text(item, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                 IconButton(onClick = { onDelete(item) }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = DarkRed, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete), tint = DarkRed, modifier = Modifier.size(20.dp))
                 }
             }
         }
